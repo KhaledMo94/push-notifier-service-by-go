@@ -1,0 +1,32 @@
+# Environment (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Logs
+internal/logs/*
+!internal/logs/*.go
+!internal/logs/.gitkeep
+/logs/
+*.log
+
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
