@@ -17,13 +17,12 @@ const (
 )
 
 type Config struct {
+	DBPath             string
 	DefaultLocale      string
 	DefaultWorkerCount int
+	EncKey 				string
 }
 
-// Load reads configuration from the environment. Values in the given .env files
-// are applied first without overriding variables already set in the environment;
-// missing files are ignored.
 func Load(envFiles ...string) (*Config, error) {
 	if len(envFiles) == 0 {
 		envFiles = []string{".env"}
@@ -42,9 +41,16 @@ func Load(envFiles ...string) (*Config, error) {
 		return nil, fmt.Errorf("DEFAULT_WORKER_COUNT must be > 0, got %d", workers)
 	}
 
+	key := strings.TrimSpace(os.Getenv("ENCRYPTION_KEY"))
+	if key == ""{
+		return nil, errors.New("ENCRYPTION_KEY is required")
+	}
+
 	return &Config{
+		DBPath:             stringEnv("DB_PATH", "notifier.db"),
 		DefaultLocale:      stringEnv("DEFAULT_LOCALE", fallbackLocale),
 		DefaultWorkerCount: workers,
+		EncKey: key,
 	}, nil
 }
 

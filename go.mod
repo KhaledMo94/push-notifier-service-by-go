@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/joho/godotenv v1.5.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
 )

@@ -29,7 +29,7 @@ type BackendRepository struct {
 	db *db.DB
 }
 
-//compile time error if not match all these interfcs
+// compile time error if not match all these interfcs
 var (
 	_ BackendLoader = (*BackendRepository)(nil)
 	_ BackendFinder = (*BackendRepository)(nil)
