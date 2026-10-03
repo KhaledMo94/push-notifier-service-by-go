@@ -15,7 +15,7 @@ import (
 const sqliteParams = "_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL"
 
 // OpenSQLite opens a GORM connection to the SQLite database at path.
-// Schema is managed by the SQL files in /migration, not AutoMigrate.
+// Schema is managed by the SQL files in internal/db/migration, not AutoMigrate.
 func OpenSQLite(path string, logLevel logger.LogLevel) (*gorm.DB, error) {
 	db, err := gorm.Open(sqlite.Open(withParams(path)), &gorm.Config{
 		Logger:                 logger.Default.LogMode(logLevel),

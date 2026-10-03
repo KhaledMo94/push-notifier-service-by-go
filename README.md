@@ -21,7 +21,7 @@ cp .env.example .env
 openssl rand -base64 32
 
 go mod download
-migrate -path migration -database "sqlite3://notifier.db" up
+migrate -path internal/db/migration -database "sqlite3://notifier.db" up
 go run ./cmd/server
 ```
 
@@ -53,9 +53,9 @@ internal/logger/       slog JSON logger (stdout + rotating file)
 internal/crypto/       API token hashing, AES-GCM and ChaCha20-Poly1305 encryption
 internal/storage/      SQLite connection setup (GORM)
 internal/db/           DB wrapper embedding *gorm.DB
+internal/db/migration/ SQL migrations (golang-migrate format)
 internal/models/       GORM models: Backend, StaleToken
 internal/repository/   data access: backends and stale tokens
-migration/             SQL migrations (golang-migrate format)
 ```
 
 Empty placeholders for upcoming work: `internal/fcm`, `internal/pool`, `internal/aggregator`, `internal/transport`, `api/`, `deploy/`.
@@ -68,7 +68,7 @@ Empty placeholders for upcoming work: `internal/fcm`, `internal/pool`, `internal
 
 ## Database
 
-SQLite, accessed through GORM. The schema is owned by the SQL files in `migration/` — GORM's `AutoMigrate` is not used.
+SQLite, accessed through GORM. The schema is owned by the SQL files in `internal/db/migration/` — GORM's `AutoMigrate` is not used.
 
 ### `backends`
 
