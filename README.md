@@ -17,7 +17,7 @@ git clone https://github.com/KhaledMo94/push-notifier-service-by-go.git push-not
 cd push-notifier
 
 cp .env.example .env
-# set ENCRYPTION_KEY in .env:
+# set the key for ENCRYPTION_ALGORITHM in .env (AES_GCM_KEY or CHACHA20_POLY1305_KEY):
 openssl rand -base64 32
 
 go mod download
@@ -34,11 +34,13 @@ Settings are read from environment variables. A `.env` file in the working direc
 | Variable | Default | Description |
 |---|---|---|
 | `DB_PATH` | `notifier.db` | Path to the SQLite database file |
-| `ENCRYPTION_KEY` | — (required) | Base64-encoded 32-byte key used to encrypt FCM credentials. Generate with `openssl rand -base64 32` |
+| `ENCRYPTION_ALGORITHM` | `aes-gcm` | Cipher for FCM credentials: `aes-gcm` or `chacha20-poly1305` |
+| `AES_GCM_KEY` | — | Base64-encoded 32-byte key; required when `ENCRYPTION_ALGORITHM=aes-gcm` |
+| `CHACHA20_POLY1305_KEY` | — | Base64-encoded 32-byte key; required when `ENCRYPTION_ALGORITHM=chacha20-poly1305` |
 | `DEFAULT_LOCALE` | `en` | Locale assigned to a backend when none is provided |
 | `DEFAULT_WORKER_COUNT` | `1` | Worker count assigned to a backend when none is provided; must be > 0 |
 
-The server refuses to start if `ENCRYPTION_KEY` is missing or is not a valid 32-byte key.
+Generate keys with `openssl rand -base64 32`. The server refuses to start if the algorithm is unknown, or if the selected algorithm's key is missing or is not a valid 32-byte key.
 
 `.env` is git-ignored; keep `.env.example` up to date when adding variables.
 
@@ -48,7 +50,7 @@ The server refuses to start if `ENCRYPTION_KEY` is missing or is not a valid 32-
 cmd/server/            entry point: config, logging, database, cipher setup
 internal/config/       environment configuration loading
 internal/logger/       slog JSON logger (stdout + rotating file)
-internal/crypto/       API token hashing, AES-GCM encryption
+internal/crypto/       API token hashing, AES-GCM and ChaCha20-Poly1305 encryption
 internal/storage/      SQLite connection setup (GORM)
 internal/db/           DB wrapper embedding *gorm.DB
 internal/models/       GORM models: Backend, StaleToken
@@ -130,16 +132,21 @@ A fast unsalted hash is used on purpose: tokens are 256-bit random values, so th
 
 ### FCM credentials
 
-`crypto.Cipher` is the encryption interface; `crypto.AESGCM` implements it with AES-256-GCM using `ENCRYPTION_KEY`.
+`crypto.Cipher` is the encryption interface. `crypto.NewCipher(algorithm, key)` returns the implementation selected by `ENCRYPTION_ALGORITHM`; the rest of the code only uses the interface.
 
-- `Encrypt(plaintext)` returns `aesgcmv1:` + base64(nonce ‖ ciphertext). A new random nonce is used every time.
-- `Decrypt(encoded)` returns the original bytes, or `crypto.ErrInvalidCiphertext` for a wrong key, altered data or an unknown format.
+| Algorithm | Type | Nonce | Prefix |
+|---|---|---|---|
+| `aes-gcm` | `crypto.AESGCM` (AES-256-GCM) | 12 bytes | `aesgcmv1:` |
+| `chacha20-poly1305` | `crypto.Chacha20poly1305` (XChaCha20-Poly1305) | 24 bytes | `chachav1:` |
 
-The `aesgcmv1:` prefix identifies the format so keys can be rotated later.
+- `Encrypt(plaintext)` returns the prefix + base64(nonce ‖ ciphertext). A new random nonce is used every time.
+- `Decrypt(encoded)` returns the original bytes, or `crypto.ErrInvalidCiphertext` for a wrong key, altered data or another algorithm's prefix.
+
+Each cipher only decrypts values with its own prefix, so changing `ENCRYPTION_ALGORITHM` after credentials are stored requires re-encrypting them.
 
 ## Security notes
 
-- **Back up `ENCRYPTION_KEY` outside the server.** Losing it makes every stored FCM credential unrecoverable.
+- **Back up the encryption keys outside the server.** Losing the active key makes every stored FCM credential unrecoverable.
 - Never log plain API tokens, decrypted credentials or the encryption key.
 - `token_hash` and `fcm_credentials` are excluded from JSON output.
 

@@ -1,50 +1,42 @@
 package crypto
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"strings"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
-const aesGCMVersion = "aesgcmv1:"
+const chachaVersion = "chachav1:"
 
-type AESGCM struct {
+type Chacha20poly1305 struct {
 	aead cipher.AEAD
 }
 
-var (
-	_ Cipher = (*AESGCM)(nil)
-)
+var _ Cipher = (*Chacha20poly1305)(nil)
 
-func NewAESGCM(base64key string) (*AESGCM, error) {
+func NewChaChaPoly1305(base64key string) (*Chacha20poly1305, error) {
 	key, err := base64.StdEncoding.DecodeString(base64key)
 	if err != nil {
 		return nil, fmt.Errorf("decode key: %w", err)
 	}
 
-	if len(key) != 32 {
-		return nil, fmt.Errorf("key must be 32 bytes, got %d", len(key))
+	if len(key) != chacha20poly1305.KeySize {
+		return nil, fmt.Errorf("key must be %d bytes, got %d", chacha20poly1305.KeySize, len(key))
 	}
 
-	block, err := aes.NewCipher(key)
+	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, err
 	}
 
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AESGCM{aead: aead}, nil
+	return &Chacha20poly1305{aead: aead}, nil
 }
 
-// GenerateNonce returns a random nonce of the size GCM expects.
-// A nonce must never repeat for the same key.
-func (c *AESGCM) GenerateNonce() ([]byte, error) {
+func (c *Chacha20poly1305) GenerateNonce() ([]byte, error) {
 	nonce := make([]byte, c.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
@@ -52,7 +44,7 @@ func (c *AESGCM) GenerateNonce() ([]byte, error) {
 	return nonce, nil
 }
 
-func (c *AESGCM) Encrypt(plaintext []byte) (string, error) {
+func (c *Chacha20poly1305) Encrypt(plaintext []byte) (string, error) {
 	nonce, err := c.GenerateNonce()
 	if err != nil {
 		return "", err
@@ -60,11 +52,11 @@ func (c *AESGCM) Encrypt(plaintext []byte) (string, error) {
 
 	sealed := c.aead.Seal(nonce, nonce, plaintext, nil)
 
-	return aesGCMVersion + base64.StdEncoding.EncodeToString(sealed), nil
+	return chachaVersion + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-func (c *AESGCM) Decrypt(encoded string) ([]byte, error) {
-	raw, ok := strings.CutPrefix(encoded, aesGCMVersion)
+func (c *Chacha20poly1305) Decrypt(encoded string) ([]byte, error) {
+	raw, ok := strings.CutPrefix(encoded, chachaVersion)
 	if !ok {
 		return nil, ErrInvalidCiphertext
 	}
