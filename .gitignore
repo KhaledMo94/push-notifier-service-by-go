@@ -31,3 +31,9 @@ coverage.*
 .vscode/
 *.swp
 .DS_Store
+
+
+# local test files and Firebase service-account keys
+test
+test.json
+*-sa.json
