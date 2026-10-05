@@ -2,7 +2,7 @@
 
 A Go service that sends push notifications through Firebase Cloud Messaging (FCM) on behalf of registered backends. Each backend has its own FCM credentials, worker count and default locale, and the service keeps track of device tokens that FCM reports as invalid ("stale") so backends can clean them up.
 
-> **Status:** early development. Configuration, logging, the data layer (schema, models, repositories) and the crypto helpers are in place. The server currently starts up, connects to the database and validates the encryption key, then exits. The HTTP API, FCM sender, worker pool and backend admin command are not implemented yet.
+> **Status:** early development. Configuration, logging, the data layer (schema, models, repositories) and the crypto helpers are in place. The server currently starts up, connects to the database and validates the encryption key, then exits. The `admin` command can create, list and delete backends and rotate their API tokens. The HTTP API, FCM sender and worker pool are not implemented yet.
 
 ## Requirements
 
@@ -27,6 +27,29 @@ go run ./cmd/server
 
 Migrations are applied manually for now; the `-database` path must match `DB_PATH`.
 
+### Installing the `migrate` CLI
+
+```bash
+CGO_ENABLED=1 go install -tags 'sqlite3' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+```
+
+- `go install` puts binaries in `$(go env GOPATH)/bin` (usually `~/go/bin`). Add it to your `PATH`, e.g. `echo 'export PATH="$PATH:$HOME/go/bin"' >> ~/.bashrc`.
+- If `go env GOBIN` prints a custom folder, binaries go there instead; reset it with `go env -u GOBIN`.
+- `go get github.com/golang-migrate/migrate/v4` only adds the library to `go.mod`; it does not install the CLI.
+- If the shell suggests `apt install python3-migrate`, ignore it — that is an unrelated Python tool.
+
+### Checking migrations
+
+```bash
+migrate -path internal/db/migration -database "sqlite3://notifier.db" version   # 2 = all applied
+sqlite3 notifier.db ".tables"                                                    # backends, schema_migrations, stale_tokens
+sqlite3 notifier.db "SELECT * FROM schema_migrations;"                           # 2|0 = version 2, not dirty
+```
+
+A version printed as `N (dirty)` means a migration failed partway; fix the database, then clear the flag with `migrate ... force <last-good-version>`.
+
+To browse the data in a GUI, use a **SQLite** connection to the absolute path of `notifier.db` (no host, user or password). DuckDB-based connections need the `sqlite_scanner` extension and may fail to download it.
+
 ## Configuration
 
 Settings are read from environment variables. A `.env` file in the working directory is loaded on startup; variables already set in the environment take priority over it.
@@ -48,6 +71,8 @@ Generate keys with `openssl rand -base64 32`. The server refuses to start if the
 
 ```
 cmd/server/            entry point: config, logging, database, cipher setup
+cmd/admin/             admin CLI entry point: picks a subcommand and runs it
+cmd/admin/command/     admin subcommands (create, list, delete, rotate-token) and their registry
 internal/config/       environment configuration loading
 internal/logger/       slog JSON logger (stdout + rotating file)
 internal/crypto/       API token hashing, AES-GCM and ChaCha20-Poly1305 encryption
@@ -59,6 +84,53 @@ internal/repository/   data access: backends and stale tokens
 ```
 
 Empty placeholders for upcoming work: `internal/fcm`, `internal/pool`, `internal/aggregator`, `internal/transport`, `api/`, `deploy/`.
+
+## Admin command
+
+`cmd/admin` manages backends from the command line. It reads `.env` and opens `DB_PATH` like the server, so **run it from the project root**; from another folder it won't find `.env` and may create a new empty database there.
+
+```bash
+go run ./cmd/admin                    # list the available commands
+go run ./cmd/admin <command> -h       # show one command's flags
+```
+
+| Command | Example | What it does |
+|---|---|---|
+| `create` | `create -name my-app -fcm-credentials sa.json [-description "..."] [-workers 4] [-locale ar]` | Encrypts the service-account JSON, stores the backend and prints its API token **once**. `-workers` and `-locale` default to `DEFAULT_WORKER_COUNT` and `DEFAULT_LOCALE`. |
+| `list` | `list [-search app] [-sort]` | Prints id, name, workers, locale, created time and description. `-search` filters names (case-insensitive); `-sort` shows the newest first. Never prints token hashes or credentials. |
+| `delete` | `delete -name my-app [-yes]` or `delete -id 3` | Asks for confirmation (skip with `-yes`), then deletes the backend and its stale tokens. |
+| `rotate-token` | `rotate-token -name my-app` or `rotate-token -id 3` | Replaces the backend's API token and prints the new one once; the old token stops working. |
+
+`delete` and `rotate-token` take `-id` or `-name`; if both are given, `-id` is used.
+
+Notes:
+
+- Flags must come before any other argument: in `create foo -name x`, parsing stops at `foo` and `-name` is ignored.
+- Exit codes: `0` success or `-h`, `1` command error, `2` missing or unknown command.
+- Ctrl+C cancels the command's context, so a running database operation stops instead of being killed midway.
+- Store the printed API token right away; only its SHA-256 hash is saved, so it can't be shown again (use `rotate-token` if it's lost).
+- Keep service-account files out of git (`.gitignore` covers `*-sa.json`).
+
+### Adding a command
+
+Each command registers itself, so `main.go` and `command.go` never change when commands are added:
+
+1. Create `cmd/admin/command/<name>_command.go` with a type implementing `command.Command` (`Name`, `Usage`, `Run`).
+2. Add `func init() { Register(&myCmd{}) }` in that file.
+3. Parse flags with its own `flag.NewFlagSet`, and pass the command logic only the repository interfaces it uses (e.g. `BackendFinder` + `BackendWriter`).
+
+`Register` panics on a duplicate name, so a clash is caught at startup.
+
+### `go run` vs. a built binary
+
+| Goal | Command | Notes |
+|---|---|---|
+| Develop and try commands | `go run ./cmd/admin list` | Always compiles the current code. Reports a non-zero exit as `exit status N` and itself exits with `1`. |
+| Check real exit codes | `go build -o /tmp/admin ./cmd/admin && /tmp/admin; echo $?` | `/tmp` is cleared on reboot; rebuild when needed. |
+| Keep a binary in the project | `go build -o bin/admin ./cmd/admin` | `/bin/` is git-ignored. |
+| Use it as a normal command | `go install ./cmd/admin`, then `admin list` | Installed to `~/go/bin`. |
+
+A built binary is a snapshot: it does not pick up code changes until you build or install it again.
 
 ## Logging
 
