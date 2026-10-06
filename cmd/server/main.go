@@ -44,5 +44,11 @@ func run() error {
 	slog.Info("encryption ready", "algorithm", cnf.Encryption.Algorithm)
 	_ = cipher
 
+	version, err := dbConn.Migrate()
+	if err != nil {
+		return fmt.Errorf("database migration failed: %w", err)
+	}
+	slog.Info("database migrated", "version", version)
+
 	return nil
 }
